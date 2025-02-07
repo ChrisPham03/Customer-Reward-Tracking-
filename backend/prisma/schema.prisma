@@ -1,0 +1,250 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Authentication and Account Management
+model UserAccount {
+  id              String    @id @default(cuid())
+  email           String?   @unique
+  phoneNumber     String?   @unique
+  password        String?   // Hashed password, optional if using only auth codes
+  isEmailVerified Boolean   @default(false)
+  isPhoneVerified Boolean   @default(false)
+  lastLoginAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  userProfile     UserProfile?
+  authCodes       AuthCode[]
+  loginHistory    LoginHistory[]
+
+  @@index([email, phoneNumber])
+}
+
+model AuthCode {
+  id            String    @id @default(cuid())
+  userAccountId String
+  code          String    // Hashed verification code
+  type          String    // "EMAIL", "SMS"
+  expiresAt     DateTime
+  isUsed        Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  
+  // Relations
+  userAccount   UserAccount @relation(fields: [userAccountId], references: [id])
+}
+
+model LoginHistory {
+  id            String    @id @default(cuid())
+  userAccountId String
+  loginMethod   String    // "PASSWORD", "EMAIL_CODE", "SMS_CODE"
+  ipAddress     String?
+  userAgent     String?
+  status        String    // "SUCCESS", "FAILED"
+  createdAt     DateTime  @default(now())
+  
+  // Relations
+  userAccount   UserAccount @relation(fields: [userAccountId], references: [id])
+}
+
+// User Profile and Business Logic
+model UserProfile {
+  id            String    @id @default(cuid())
+  userAccountId String    @unique
+  firstName     String
+  lastName      String
+  dateOfBirth   DateTime?
+  gender        String?
+  address       String?
+  avatar        String?   // URL to profile picture
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  userAccount   UserAccount @relation(fields: [userAccountId], references: [id])
+  points        Point[]
+  bookings      ServiceBooking[]
+  qrTransactions QRTransaction[]
+  rewardsClaimed RewardClaimed[]
+}
+
+model Business {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  address     String
+  category    String    // e.g., "spa", "salon", etc.
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  services    Service[]
+  promotions  Promotion[]
+  points      Point[]
+}
+
+model Service {
+  id          String    @id @default(cuid())
+  businessId  String
+  name        String
+  description String?
+  price       Float
+  pointsEarned Int
+  duration    Int       // Service duration in minutes
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  business    Business  @relation(fields: [businessId], references: [id])
+  bookings    ServiceBooking[]
+  promotions  PromotionService[]
+  rewards     RewardService[]
+  points      Point[]
+}
+
+model ServiceBooking {
+  id            String    @id @default(cuid())
+  userProfileId String
+  serviceId     String
+  bookingDate   DateTime  // When the service is scheduled
+  startTime     DateTime  // Service start time
+  endTime       DateTime  // Service end time
+  status        String    // "scheduled", "completed", "cancelled", "no-show"
+  isRecurring   Boolean   @default(false)
+  recurringInterval String?   // "weekly", "monthly", etc.
+  notes         String?   // Additional booking notes
+  pointsEarned  Int?     // Points earned from this booking
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  userProfile   UserProfile @relation(fields: [userProfileId], references: [id])
+  service       Service     @relation(fields: [serviceId], references: [id])
+}
+
+model Point {
+  id            String    @id @default(cuid())
+  userProfileId String
+  businessId    String
+  serviceId     String?
+  amount        Int
+  type          String    // "earned", "spent"
+  source        String    // "service_booking", "promotion", "qr_code", "referral", etc.
+  description   String?
+  expiryDate    DateTime?
+  createdAt     DateTime  @default(now())
+  
+  // Relations
+  userProfile   UserProfile @relation(fields: [userProfileId], references: [id])
+  business      Business    @relation(fields: [businessId], references: [id])
+  service       Service?    @relation(fields: [serviceId], references: [id])
+
+  @@index([userProfileId, businessId])
+  @@index([serviceId])
+}
+
+model Promotion {
+  id            String    @id @default(cuid())
+  businessId    String
+  name          String
+  description   String
+  discountType  String    // "PERCENTAGE", "FIXED_AMOUNT"
+  discountValue Float
+  minSpend      Float?    // Minimum spend required
+  maxDiscount   Float?    // Maximum discount amount
+  startDate     DateTime
+  endDate       DateTime
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  business      Business  @relation(fields: [businessId], references: [id])
+  services      PromotionService[]
+}
+
+model PromotionService {
+  id          String    @id @default(cuid())
+  promotionId String
+  serviceId   String
+  createdAt   DateTime  @default(now())
+  
+  // Relations
+  promotion   Promotion @relation(fields: [promotionId], references: [id])
+  service     Service   @relation(fields: [serviceId], references: [id])
+
+  @@unique([promotionId, serviceId])
+}
+
+model Reward {
+  id            String    @id @default(cuid())
+  name          String
+  description   String
+  pointsCost    Int
+  rewardType    String    // "SERVICE_DISCOUNT", "FREE_SERVICE", "PRODUCT", "VOUCHER"
+  discountValue Float?    // For service discounts
+  quantity      Int       // Available quantity
+  startDate     DateTime  @default(now())
+  endDate       DateTime?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  claimed       RewardClaimed[]
+  services      RewardService[]
+}
+
+model RewardService {
+  id          String    @id @default(cuid())
+  rewardId    String
+  serviceId   String
+  createdAt   DateTime  @default(now())
+  
+  // Relations
+  reward      Reward    @relation(fields: [rewardId], references: [id])
+  service     Service   @relation(fields: [serviceId], references: [id])
+
+  @@unique([rewardId, serviceId])
+}
+
+model RewardClaimed {
+  id            String    @id @default(cuid())
+  userProfileId String
+  rewardId      String
+  claimedAt     DateTime  @default(now())
+  status        String    // "pending", "redeemed", "expired"
+  
+  // Relations
+  userProfile   UserProfile @relation(fields: [userProfileId], references: [id])
+  reward        Reward    @relation(fields: [rewardId], references: [id])
+}
+
+model QRTransaction {
+  id            String    @id @default(cuid())
+  userProfileId String
+  qrCode        String    @unique
+  type          String    // "earn", "redeem"
+  points        Int
+  status        String    // "pending", "completed", "expired"
+  expiryDate    DateTime
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  userProfile   UserProfile @relation(fields: [userProfileId], references: [id])
+}
